@@ -1,5 +1,4 @@
 from flask import Flask, render_template, request, jsonify, Response
-import pyaudio
 import wave
 import os
 import requests
@@ -8,11 +7,19 @@ import threading
 import time
 import json
 
+# Try to import PyAudio, but make it optional
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+    print("PyAudio not available - recording functionality will be disabled")
+
 app = Flask(__name__)
 
 # Audio recording settings
 CHUNK = 1024
-FORMAT = pyaudio.paInt16
+FORMAT = 1 if PYAUDIO_AVAILABLE else None  # pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
 RECORDING_FILE = "audio.wav"
@@ -27,6 +34,9 @@ API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 def record_audio():
     """Record audio from microphone"""
+    if not PYAUDIO_AVAILABLE:
+        return False
+        
     global recording, audio_frames
     
     # Reset audio frames
@@ -76,16 +86,16 @@ def record_audio():
         print("No audio frames captured")
         return False
 
-def transcribe_audio():
+def transcribe_audio(file_path):
     """Transcribe audio using Groq API"""
     try:
         headers = {
             "Authorization": f"Bearer {API_KEY}"
         }
         
-        with open(RECORDING_FILE, "rb") as f:
+        with open(file_path, "rb") as f:
             files = {
-                "file": (RECORDING_FILE, f, "audio/wav")
+                "file": (file_path, f, "audio/wav")
             }
             data = {
                 "model": "distil-whisper-large-v3-en",
@@ -94,7 +104,7 @@ def transcribe_audio():
                 "prompt": ""
             }
             
-            print("Sending audio to Groq API...")
+            print(f"Sending audio file {file_path} to Groq API...")
             response = requests.post(API_URL, headers=headers, files=files, data=data)
             
             print(f"Transcription response status: {response.status_code}")
@@ -111,10 +121,13 @@ def transcribe_audio():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', recording_enabled=PYAUDIO_AVAILABLE)
 
 @app.route('/start_recording', methods=['POST'])
 def start_recording():
+    if not PYAUDIO_AVAILABLE:
+        return jsonify({"status": "error", "message": "Recording not available on this server"})
+        
     global recording
     if not recording:
         recording = True
@@ -124,6 +137,9 @@ def start_recording():
 
 @app.route('/stop_recording', methods=['POST'])
 def stop_recording():
+    if not PYAUDIO_AVAILABLE:
+        return jsonify({"status": "error", "message": "Recording not available on this server"})
+        
     global recording
     if recording:
         recording = False
@@ -138,7 +154,7 @@ def stop_recording():
             })
         
         # Transcribe audio
-        transcription = transcribe_audio()
+        transcription = transcribe_audio(RECORDING_FILE)
         
         # Include the current time
         current_time = datetime.now().strftime("%H:%M:%S")
@@ -165,25 +181,12 @@ def upload_file():
     print(f"Uploaded file saved to {file_path}, size: {os.path.getsize(file_path)} bytes")
     
     try:
-        # First save the original recording file if it exists
-        original_recording = None
-        if os.path.exists(RECORDING_FILE):
-            with open(RECORDING_FILE, "rb") as f:
-                original_recording = f.read()
+        # Transcribe the uploaded file
+        transcription = transcribe_audio(file_path)
         
-        # Replace the recording file with the uploaded file
-        os.rename(file_path, RECORDING_FILE)
-        
-        # Transcribe using the common function
-        transcription = transcribe_audio()
-        
-        # Restore the original recording file if it existed
-        if original_recording:
-            with open(RECORDING_FILE, "wb") as f:
-                f.write(original_recording)
-        else:
-            # Remove the recording file if there was no original
-            os.remove(RECORDING_FILE)
+        # Clean up
+        if os.path.exists(file_path):
+            os.remove(file_path)
         
         return jsonify({
             'status': 'success',
