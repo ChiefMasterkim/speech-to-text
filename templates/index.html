@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice to Text</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .app-container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 30px;
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        .record-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px auto;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .record-btn.recording {
+            background-color: #dc3545;
+            animation: pulse 1.5s infinite;
+        }
+        .record-btn:not(.recording) {
+            background-color: #6c757d;
+        }
+        .record-btn:hover {
+            transform: scale(1.05);
+        }
+        .record-icon {
+            font-size: 30px;
+            color: white;
+        }
+        .record-status {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: 500;
+            color: #495057;
+        }
+        .transcript-area {
+            margin-top: 30px;
+            border-top: 1px solid #dee2e6;
+            padding-top: 20px;
+        }
+        .transcript-item {
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #0d6efd;
+        }
+        .transcript-time {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+        .transcript-text {
+            font-size: 16px;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .upload-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 2px dashed #dee2e6;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .or-divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 30px 0;
+        }
+        .or-divider::before, .or-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .or-divider::before {
+            margin-right: 10px;
+        }
+        .or-divider::after {
+            margin-left: 10px;
+        }
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 15px rgba(220, 53, 69, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <h1 class="text-center mb-4">Voice to Text</h1>
+        
+        <!-- Recording Section -->
+        <div class="text-center">
+            <div class="record-btn" id="recordButton">
+                <span class="record-icon">🎤</span>
+            </div>
+            <div class="record-status" id="recordStatus">Click to start recording</div>
+        </div>
+        
+        <!-- Loading spinner -->
+        <div class="loading-spinner" id="loadingSpinner">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Processing audio...</p>
+        </div>
+        
+        <!-- Divider -->
+        <div class="or-divider">OR</div>
+        
+        <!-- File Upload Section -->
+        <div class="upload-section">
+            <h5 class="mb-3">Upload an audio file</h5>
+            <input type="file" class="form-control mb-3" id="audioFile" accept="audio/*">
+            <button class="btn btn-primary" id="uploadButton">Upload and Transcribe</button>
+        </div>
+        
+        <!-- Transcription Results -->
+        <div class="transcript-area">
+            <h4 class="mb-3">Transcriptions</h4>
+            <div id="transcriptsList"></div>
+        </div>
+    </div>
+
+    <script>
+        let isRecording = false;
+        const recordButton = document.getElementById('recordButton');
+        const recordStatus = document.getElementById('recordStatus');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const transcriptsList = document.getElementById('transcriptsList');
+        
+        // Record button click handler
+        recordButton.addEventListener('click', async () => {
+            if (!isRecording) {
+                // Start recording
+                try {
+                    const response = await fetch('/start_recording', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        isRecording = true;
+                        recordButton.classList.add('recording');
+                        recordStatus.textContent = 'Recording... Click to stop';
+                    }
+                } catch (error) {
+                    console.error('Error starting recording:', error);
+                    alert('Could not start recording. Please check your microphone.');
+                }
+            } else {
+                // Stop recording
+                isRecording = false;
+                recordButton.classList.remove('recording');
+                recordStatus.textContent = 'Processing...';
+                loadingSpinner.style.display = 'block';
+                
+                try {
+                    const response = await fetch('/stop_recording', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        addTranscription(data.transcription, data.time);
+                    } else {
+                        alert(data.message || 'An error occurred during transcription');
+                    }
+                } catch (error) {
+                    console.error('Error stopping recording:', error);
+                    alert('An error occurred during transcription');
+                } finally {
+                    loadingSpinner.style.display = 'none';
+                    recordStatus.textContent = 'Click to start recording';
+                }
+            }
+        });
+        
+        // Upload button click handler
+        document.getElementById('uploadButton').addEventListener('click', async () => {
+            const fileInput = document.getElementById('audioFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file first');
+                return;
+            }
+            
+            loadingSpinner.style.display = 'block';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/upload_file', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    addTranscription(data.transcription, data.time);
+                } else {
+                    alert(data.message || 'An error occurred during transcription');
+                }
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                alert('Error uploading file');
+            } finally {
+                loadingSpinner.style.display = 'none';
+            }
+        });
+        
+        // Add transcription to list
+        function addTranscription(transcription, time) {
+            // Create a new transcription item
+            const transcriptItem = document.createElement('div');
+            transcriptItem.className = 'transcript-item';
+            
+            // Add time
+            const timeElement = document.createElement('div');
+            timeElement.className = 'transcript-time';
+            timeElement.textContent = `Recorded at ${time}`;
+            transcriptItem.appendChild(timeElement);
+            
+            // Add transcription text
+            const textElement = document.createElement('div');
+            textElement.className = 'transcript-text';
+            
+            // Extract text from API response
+            let transcriptionText = "No text transcribed";
+            
+            if (transcription) {
+                if (typeof transcription === 'object') {
+                    if (transcription.text) {
+                        transcriptionText = transcription.text;
+                    } else {
+                        transcriptionText = JSON.stringify(transcription);
+                    }
+                } else {
+                    transcriptionText = transcription;
+                }
+            }
+            
+            textElement.textContent = transcriptionText;
+            transcriptItem.appendChild(textElement);
+            
+            // Add to the list (at the top)
+            transcriptsList.insertBefore(transcriptItem, transcriptsList.firstChild);
+        }
+    </script>
+</body>
+</html> 

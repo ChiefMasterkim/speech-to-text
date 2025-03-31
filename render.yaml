@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: voice-to-text
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+    plan: free 
